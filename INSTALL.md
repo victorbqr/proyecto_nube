@@ -143,6 +143,10 @@ Abre tu navegador en:
 
 Mantén la terminal abierta mientras uses el sistema. Para detenerlo, presiona `Ctrl + C`.
 
+### Cargar un archivo
+
+En el panel **Explorador y Versiones**, selecciona el departamento y arrastra un archivo a la zona de carga. También puedes pulsar la zona para elegirlo. Si el departamento ya está seleccionado, al soltarlo comienza la carga; si no, elige el departamento y pulsa **Subir archivo**. CBAS guarda el documento en la carpeta departamental de `directorio_pyme/` y lo incorpora al registro de auditoría y a la sincronización con Dropbox. El límite es de 150 MiB por archivo; si ya existe un archivo con ese nombre en el departamento seleccionado, la carga se rechaza para evitar reemplazarlo.
+
 ---
 
 ## 8. Verificacion y Prueba Rapida de Funcionamiento

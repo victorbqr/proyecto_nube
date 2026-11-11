@@ -14,7 +14,7 @@ import io
 import json
 from pathlib import Path
 from flask import Flask, jsonify, request, render_template, send_file
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 from cbas.validation import validar_nombre, validar_revision, inferir_departamento, DEPARTAMENTOS_VALIDOS
 from cbas.documents import texto_docx, MAX_DOCX_BYTES
 
@@ -59,7 +59,8 @@ from cbas.agent import (
 )
 
 app = Flask(__name__, template_folder="templates")
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024
+MAX_UPLOAD_BYTES = 150 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_BYTES + 1024 * 1024
 
 
 @app.before_request
@@ -84,7 +85,7 @@ def error_archivo_bloqueado(exc):
 @app.errorhandler(HTTPException)
 def error_http(exc):
     return jsonify(error={400: 'Solicitud o JSON no válido.', 404: 'Recurso no encontrado.',
-                          413: 'La solicitud excede el tamaño permitido.'}.get(exc.code, exc.name)), exc.code
+                          413: 'El archivo supera el límite de 150 MiB.'}.get(exc.code, exc.name)), exc.code
 
 
 @app.errorhandler(Exception)
@@ -284,6 +285,49 @@ def api_listar_archivos():
     departamento = request.args.get("departamento")
     archivos = listar_archivos_monitoreados(departamento=departamento)
     return jsonify({"archivos": archivos})
+
+
+@app.route("/api/upload", methods=["POST"])
+def api_subir_archivo():
+    archivo = request.files.get("archivo")
+    departamento = request.form.get("departamento", "")
+    if archivo is None or not archivo.filename:
+        return jsonify(error="Selecciona un archivo para cargar."), 400
+    if departamento not in DEPARTAMENTOS_VALIDOS:
+        return jsonify(error="Selecciona un departamento válido."), 400
+    if "/" in archivo.filename or "\\" in archivo.filename:
+        return jsonify(error="El nombre del archivo no puede incluir rutas."), 400
+
+    nombre_archivo = validar_nombre(f"{departamento}/{archivo.filename}", MONITORED_DIR)
+    ruta_archivo = MONITORED_DIR / nombre_archivo
+    with bloqueo_archivo(nombre_archivo):
+        ruta_archivo.parent.mkdir(parents=True, exist_ok=True)
+        if ruta_archivo.exists():
+            return jsonify(error="Ya existe un archivo con ese nombre en el departamento seleccionado."), 409
+
+        creado = False
+        completo = False
+        try:
+            with ruta_archivo.open("xb") as destino:
+                creado = True
+                tamano = 0
+                while bloque := archivo.stream.read(1024 * 1024):
+                    tamano += len(bloque)
+                    if tamano > MAX_UPLOAD_BYTES:
+                        raise RequestEntityTooLarge()
+                    destino.write(bloque)
+            completo = True
+        except FileExistsError:
+            return jsonify(error="Ya existe un archivo con ese nombre en el departamento seleccionado."), 409
+        finally:
+            if creado and not completo:
+                ruta_archivo.unlink(missing_ok=True)
+
+        resultado = sincronizar_archivo_guardado(
+            ruta_archivo,
+            detalle_personalizado="Cargado desde la consola web",
+        )
+    return jsonify({"ok": True, "nombre_archivo": nombre_archivo, "resultado": resultado}), 201
 
 
 @app.route("/api/files/<path:nombre_archivo>/versions", methods=["GET"])

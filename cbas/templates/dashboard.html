@@ -54,6 +54,23 @@
           <span id="file-count" class="count">0</span>
         </div>
         <label class="search"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><input id="search" type="search" placeholder="Buscar archivo…" aria-label="Buscar archivo por nombre"></label>
+        <form id="upload-form" class="upload-form">
+          <label for="upload-department">Departamento</label>
+          <select id="upload-department" name="departamento" required>
+            <option value="">Selecciona un departamento</option>
+            <option value="Contabilidad">Contabilidad</option>
+            <option value="Recursos_Humanos">Recursos Humanos</option>
+            <option value="Legal">Legal</option>
+            <option value="Sistemas_TI">Sistemas TI</option>
+            <option value="General">General</option>
+          </select>
+          <input id="upload-file" class="upload-file-input" name="archivo" type="file" required>
+          <label id="upload-dropzone" class="upload-dropzone" for="upload-file">
+            Arrastra aquí o pulsa para elegir un archivo
+          </label>
+          <button id="upload-submit" class="button primary" type="submit">Subir archivo</button>
+          <p class="upload-help">Máximo 150 MiB. Los archivos existentes no se reemplazan.</p>
+        </form>
         <div id="file-list" class="file-list" aria-label="Archivos disponibles"><p class="empty small">Cargando archivos…</p></div>
         <div class="folder-info">
           <span class="folder-label">Carpeta local monitoreada</span>

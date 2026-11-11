@@ -12,6 +12,7 @@ const state = {
   view: 'files',   // 'files', 'audit', 'diagnostic'
   refreshing: false,
   restoring: false,
+  uploading: false,
   loading: false,
   generation: 0,
   activeMilestoneVer: null,
@@ -47,10 +48,10 @@ function notice(message, success = false) {
   $('notice').hidden = false;
 }
 
-async function api(url, options = {}) {
+async function api(url, options = {}, timeout = 45000) {
   let response;
   try {
-    response = await fetch(url, {...options, signal: AbortSignal.timeout(45000)});
+    response = await fetch(url, {...options, signal: AbortSignal.timeout(timeout)});
   } catch {
     throw new Error('No se pudo conectar con el servidor CBAS. Comprueba que run_cbas.py esté activo.');
   }
@@ -1007,6 +1008,78 @@ $('show-content').addEventListener('click', () => changeMode('content'));
 $('show-diff').addEventListener('click', () => changeMode('diff'));
 
 $('search').addEventListener('input', renderFiles);
+$('upload-dropzone').addEventListener('dragover', e => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  $('upload-dropzone').classList.add('drag-over');
+});
+$('upload-dropzone').addEventListener('dragleave', e => {
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    $('upload-dropzone').classList.remove('drag-over');
+  }
+});
+$('upload-dropzone').addEventListener('drop', e => {
+  e.preventDefault();
+  $('upload-dropzone').classList.remove('drag-over');
+  const files = e.dataTransfer.files;
+  if (files.length !== 1) {
+    notice('Suelta un solo archivo a la vez.');
+    return;
+  }
+
+  try {
+    const transfer = new DataTransfer();
+    transfer.items.add(files[0]);
+    $('upload-file').files = transfer.files;
+  } catch {
+    notice('Este navegador no permite cargar el archivo arrastrado. Usa la zona para seleccionarlo.');
+    return;
+  }
+  if (!$('upload-department').value) {
+    notice('Selecciona el departamento y pulsa Subir archivo para continuar.');
+    $('upload-department').focus();
+    return;
+  }
+  $('upload-form').requestSubmit();
+});
+$('upload-file').addEventListener('change', () => {
+  $('upload-dropzone').textContent = $('upload-file').files.length
+    ? `Archivo seleccionado: ${$('upload-file').files[0].name}`
+    : 'Arrastra un archivo aquí o selecciónalo';
+});
+$('upload-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (state.uploading) return;
+  const form = e.currentTarget;
+  const selectedFile = $('upload-file').files[0];
+  if (!selectedFile) {
+    notice('Selecciona un archivo para cargar.');
+    return;
+  }
+
+  let uploaded = false;
+  state.uploading = true;
+  $('upload-submit').disabled = true;
+  $('upload-submit').textContent = 'Subiendo…';
+  $('refresh').disabled = true;
+  try {
+    const data = await api('/api/upload', {method: 'POST', body: new FormData(form)}, 180000);
+    state.file = data.nombre_archivo;
+    state.detail = null;
+    form.reset();
+    $('upload-dropzone').textContent = 'Arrastra un archivo aquí o selecciónalo';
+    notice(`Archivo «${data.nombre_archivo}» cargado y enviado a auditoría.`, true);
+    uploaded = true;
+  } catch (err) {
+    notice(err.message);
+  } finally {
+    state.uploading = false;
+    $('upload-submit').disabled = false;
+    $('upload-submit').textContent = 'Subir archivo';
+    $('refresh').disabled = false;
+  }
+  if (uploaded) await refresh();
+});
 $('compare').addEventListener('change', () => {
   if (state.version) selectVersion(state.version);
 });
@@ -1018,7 +1091,7 @@ $('dismiss-notice').addEventListener('click', () => {
 });
 
 async function refresh() {
-  if (state.refreshing || state.loading || state.restoring || $('restore-dialog').open) return;
+  if (state.refreshing || state.loading || state.restoring || state.uploading || $('restore-dialog').open) return;
   state.refreshing = true;
   $('refresh').disabled = true;
   try {

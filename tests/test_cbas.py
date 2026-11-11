@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -49,6 +50,64 @@ class CbasTests(unittest.TestCase):
         with patch.object(backend, 'sincronizar_archivo_guardado') as upload:
             self.assertEqual(self.client.get('/api/files').status_code, 200)
             upload.assert_not_called()
+
+    def test_upload_saves_in_department_and_registers_version(self):
+        with patch.object(agent, 'subir_version_archivo', side_effect=self.cloud_result):
+            response = self.client.post(
+                '/api/upload',
+                data={'departamento': 'Legal', 'archivo': (BytesIO(b'Contrato v1\n'), 'contrato.txt')},
+                content_type='multipart/form-data',
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json['nombre_archivo'], 'Legal/contrato.txt')
+        self.assertEqual((self.root / 'Legal' / 'contrato.txt').read_bytes(), b'Contrato v1\n')
+        self.assertEqual(len(database.listar_versiones_de_archivo('Legal/contrato.txt')), 1)
+
+    def test_upload_rejects_invalid_department_path_and_existing_file(self):
+        response = self.client.post(
+            '/api/upload',
+            data={'departamento': 'Legal'},
+            content_type='multipart/form-data',
+        )
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.post(
+            '/api/upload',
+            data={'departamento': '../outside', 'archivo': (BytesIO(b'data'), 'contrato.txt')},
+            content_type='multipart/form-data',
+        )
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.post(
+            '/api/upload',
+            data={'departamento': 'Legal', 'archivo': (BytesIO(b'data'), '../outside.txt')},
+            content_type='multipart/form-data',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse((self.root / 'Legal' / 'outside.txt').exists())
+        self.assertFalse((self.root.parent / 'outside.txt').exists())
+
+        destination = self.root / 'Legal' / 'contrato.txt'
+        destination.parent.mkdir()
+        destination.write_bytes(b'original')
+        response = self.client.post(
+            '/api/upload',
+            data={'departamento': 'Legal', 'archivo': (BytesIO(b'replacement'), 'contrato.txt')},
+            content_type='multipart/form-data',
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(destination.read_bytes(), b'original')
+
+    def test_upload_enforces_file_size_limit(self):
+        with patch.object(backend, 'MAX_UPLOAD_BYTES', 3):
+            response = self.client.post(
+                '/api/upload',
+                data={'departamento': 'General', 'archivo': (BytesIO(b'toolarge'), 'demo.txt')},
+                content_type='multipart/form-data',
+            )
+        self.assertEqual(response.status_code, 413)
+        self.assertFalse((self.root / 'General' / 'demo.txt').exists())
 
     def test_invalid_inputs_are_400_without_cloud_calls(self):
         self.seed()
